@@ -74,7 +74,7 @@ function calView(){
   for(let d=1;d<=dim;d++){const k=pre+pad(d),e=map[k];if(e){mt+=e.pnl;e.pnl>=0?wd++:ld++}
     cells+=`<div class="day ${e?(e.pnl>=0?'gu':'gd'):''} ${sel===k?'sel':''}" onclick="sel=sel==='${k}'?null:'${k}';render()"><span class="mut">${d}</span>${e?`<b class="${cls(e.pnl)}">${cmp(e.pnl)}</b>`:''}</div>`}
   const e=sel&&map[sel];
-  return `<h1>Options Journal <button class="btn" onclick="exportCSV()">CSV</button></h1>${vsw()}
+  return `<h1>Options Journal <span style="display:flex;gap:6px"><button class="btn" onclick="dataSheet()">Import</button><button class="btn" onclick="exportCSV()">CSV</button></span></h1>${vsw()}
   <div class="row" style="margin-bottom:8px"><button class="btn" onclick="mv(-1)">‹</button><b>${new Date(y,m,1).toLocaleDateString(undefined,{month:'long',year:'numeric'})}</b><button class="btn" onclick="mv(1)">›</button></div>
   <div class="card row"><div><div class="k">Month P&L</div><div class="v ${cls(mt)}">${money(mt)}</div></div><div style="text-align:right"><div class="k">Green / red days</div><div class="v"><span class="up">${wd}</span> / <span class="dn">${ld}</span></div></div></div>
   <div class="cal">${['S','M','T','W','T','F','S'].map(x=>`<div class="dow">${x}</div>`).join('')}${cells}</div>
@@ -97,7 +97,7 @@ function home(){
   let list=all.filter(x=>flt==='all'||(flt==='open'?!x.c.closed:x.c.closed)).sort((a,b)=>(b.t.date||'').localeCompare(a.t.date||''));
   if(view==='cal')return calView();
   const ap=a=>a.length?a.reduce((q,x)=>q+x.c.pct,0)/a.length:null,pf=n=>n==null?'–':(n>0?'+':'')+n.toFixed(1)+'%';
-  return `<h1>Options Journal <button class="btn" onclick="exportCSV()">CSV</button></h1>${vsw()}
+  return `<h1>Options Journal <span style="display:flex;gap:6px"><button class="btn" onclick="dataSheet()">Import</button><button class="btn" onclick="exportCSV()">CSV</button></span></h1>${vsw()}
   <div class="grid">
    <div class="card"><div class="k">Realized P&L</div><div class="v ${cls(total)}">${money(total)}</div></div>
    <div class="card"><div class="k">Win rate (${closed.length} closed)</div><div class="v">${wr}</div></div>
@@ -193,6 +193,51 @@ function exportCSV(){
   sheet(`<h1>Export CSV</h1><div class="mut">Copy this and paste into Notes, Numbers or Excel. Do this regularly as a backup.</div>
   <textarea id="csv" rows="10" readonly style="margin-top:10px;font-size:12px">${esc(csv)}</textarea>
   <div class="acts"><button class="btn p" onclick="const e=$('#csv');e.select();try{navigator.clipboard.writeText(e.value)}catch(x){document.execCommand('copy')};this.textContent='Copied'">Copy</button><button class="btn" onclick="closeSheet()">Close</button></div>`);
+}
+function dataSheet(){
+  sheet(`<h1>Import & backup</h1>
+  <label>Paste trade lines from Claude (one per line)</label>
+  <textarea id="imp" rows="5" style="font-size:13px" placeholder="BUY, NVDA, 237.5, CALL, 2026-10-05, 15, 0.84, 0.60, 2026-10-05"></textarea>
+  <div class="mut" style="font-size:12px;margin-top:4px">Order: action, ticker, strike, call/put, expiration, contracts, price, fees, date. Sells attach to the matching open trade automatically.</div>
+  <div class="acts"><button class="btn p" onclick="doImport()">Import</button></div><div id="imr" style="margin-top:8px"></div>
+  <hr style="border:0;border-top:1px solid var(--bd);margin:18px 0">
+  <b>Backup</b><div class="mut" style="font-size:12px">Copies all your trades as text. Paste it into Notes.</div>
+  <div class="acts"><button class="btn" onclick="copyBackup(this)">Copy backup</button></div>
+  <label style="margin-top:16px">Restore (paste a backup here; replaces current data)</label>
+  <textarea id="rst" rows="3" style="font-size:12px"></textarea>
+  <div class="acts"><button class="btn d" onclick="doRestore()">Restore</button><button class="btn" onclick="closeSheet()">Close</button></div>`);
+}
+function doImport(){
+  const lines=$('#imp').value.split('\n').map(l=>l.trim()).filter(Boolean);
+  const dre=/^\d{4}-\d\d-\d\d$/;let a=0,b=0,dup=0;const err=[];
+  lines.forEach((l,i)=>{
+    const f=l.split(/[,|]/).map(x=>x.trim());
+    if(f.length<9)return err.push('Line '+(i+1)+': needs 9 fields');
+    const act=f[0].toLowerCase(),d={ticker:f[1].toUpperCase(),strike:parseFloat(f[2]),type:f[3].toLowerCase(),exp:f[4],qty:parseInt(f[5]),price:parseFloat(f[6]),fees:parseFloat(f[7])||0,date:f[8]};
+    if(!/^(buy|sell)$/.test(act)||!/^(call|put)$/.test(d.type)||isNaN(d.strike)||!dre.test(d.exp)||!(d.qty>0)||isNaN(d.price)||!dre.test(d.date))return err.push('Line '+(i+1)+': couldn\'t read it');
+    const same=t=>t.ticker===d.ticker&&t.type===d.type&&t.strike===d.strike&&t.exp===d.exp;
+    if(act==='buy'){
+      if(S.trades.some(t=>same(t)&&t.qty===d.qty&&t.entry===d.price&&t.date===d.date)){dup++;return}
+      S.trades.push({id:uid(),ticker:d.ticker,type:d.type,strike:d.strike,exp:d.exp,qty:d.qty,entry:d.price,date:d.date,fees:d.fees,notes:'',sells:[]});a++;
+    }else{
+      let left=d.qty;const ts=S.trades.filter(t=>same(t)&&calc(t).rem>0).sort((x,y)=>(x.date||'').localeCompare(y.date||''));
+      if(ts.reduce((q,t)=>q+calc(t).rem,0)<left)return err.push('Line '+(i+1)+': no open '+d.ticker+' $'+d.strike+' '+d.type+' with '+left+' contracts left');
+      ts.forEach(t=>{if(left<=0)return;const n=Math.min(left,calc(t).rem);t.sells.push({id:uid(),qty:n,price:d.price,date:d.date,fees:d.fees*(n/d.qty)});left-=n});b++;
+    }
+  });
+  save();render();
+  $('#imr').innerHTML='<div class="up">Added '+a+' trade(s), '+b+' sale(s)'+(dup?', skipped '+dup+' duplicate buy(s)':'')+'</div>'+err.map(e=>'<div class="dn">'+esc(e)+'</div>').join('');
+}
+function copyBackup(btn){
+  const t=JSON.stringify(S),ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();
+  try{document.execCommand('copy')}catch(e){}ta.remove();try{navigator.clipboard&&navigator.clipboard.writeText(t)}catch(e){}
+  btn.textContent='Copied';
+}
+function doRestore(){
+  try{const o=JSON.parse($('#rst').value.trim());if(!o||!Array.isArray(o.trades))throw 0;
+    if(!confirm('Replace all current data with this backup ('+o.trades.length+' trades)?'))return;
+    S=o;save();cur=null;closeSheet();render();
+  }catch(e){alert('That doesn\'t look like a valid backup.')}
 }
 render();
 </script></body></html>
