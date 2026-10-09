@@ -73,8 +73,12 @@ function calc(t){
 function sellPnl(t,s){return s.price*s.qty*100-(s.fees||0)-t.entry*100*s.qty-(t.fees||0)*(s.qty/t.qty)}
 const pad=n=>String(n).padStart(2,'0');
 const cmp=n=>(n<0?'-':'+')+'$'+(Math.abs(n)>=1000?(Math.abs(n)/1000).toFixed(1)+'k':Math.round(Math.abs(n)));
-const DTAGS=['FOMO','Revenge','Oversized','Chased','Broke rules','Early exit','Held too long'];
-const allTags=()=>DTAGS.concat((S.customTags||[]).filter(x=>!DTAGS.includes(x)));
+const DTAGS=['FOMO','Revenge','Oversized','Chased','Early exit','Held too long'];
+const allTags=()=>{const base=DTAGS.concat(S.customTags||[]);S.trades.forEach(t=>(t.tags||[]).forEach(x=>{if(!base.includes(x))base.push(x)}));return base};
+let fplan=0;
+const planBtns=()=>`<button class="tab ${fplan===1?'on':''}" onclick="setPlan(1)">✅ Followed</button><button class="tab ${fplan===-1?'on':''}" onclick="setPlan(-1)">❌ Broke it</button>`;
+function setPlan(v){fplan=fplan===v?0:v;$('#planbox').innerHTML=planBtns()}
+function setTradePlan(id,v){const t=S.trades.find(x=>x.id===id);t.plan=t.plan===v?0:v;save();render()}
 let ftags=[];
 const sess=t=>{if(!t.time)return 'na';return parseInt(t.time.split(':')[0])<12?'am':'pm'};
 const stat=a=>{const n=a.length,w=a.filter(x=>x.c.pnl>0).length;return{n,w,p:a.reduce((q,x)=>q+x.c.pnl,0),wr:n?w/n*100:0,pc:n?a.reduce((q,x)=>q+x.c.pct,0)/n:0}};
@@ -151,6 +155,8 @@ function statsView(){
   const dcard=(label,g)=>`<div class="card"><div class="row"><b>${label}</b><b class="${cls(g.p)}">${g.n?money(g.p):'–'}</b></div><div class="row mut" style="font-size:13px;margin-top:4px"><span>${g.n} day${g.n===1?'':'s'}</span><span>${g.n?money(g.avg)+' avg/day':''}</span></div></div>`;
   const hasR=r.maxLoss||r.maxTrades,anyF=Object.values(S.notes||{}).some(n=>n.followed);
   const rtxt=(r.maxLoss||r.maxTrades||r.goal)?[r.maxLoss?'Max loss/day '+money(r.maxLoss):'',r.maxTrades?'Max trades/day '+r.maxTrades:'',r.goal?'Goal '+money(r.goal):''].filter(Boolean).join(' · '):'Not set yet. Tap Edit to add a loss limit, trade limit or daily goal.';
+  const pFol=cl.filter(x=>x.t.plan===1),pBro=cl.filter(x=>x.t.plan===-1),pNo=cl.filter(x=>!x.t.plan);
+  const planSec=(pFol.length||pBro.length)?`<div class="sec">Following your plan <span class="mut" style="font-weight:400;font-size:12px">(per trade)</span></div>${card('✅ Followed plan',pFol)}${card('❌ Broke plan',pBro)}${pNo.length?card('Not marked',pNo,'open a trade to mark it'):''}`:`<div class="sec">Following your plan</div><div class="mut" style="font-size:13px">Open a trade and tap Followed plan or Broke plan to see how it affects your results.</div>`;
   let disc='';
   if(hasR){disc+=dcard('Days within your rules',gd(k=>!ruleBreak(k,di).length))+dcard('Days you broke a rule',gd(k=>ruleBreak(k,di).length>0))}
   if(r.goal)disc+=dcard('Days you hit your goal',gd(k=>(di.pnl[k]||0)>=r.goal));
@@ -160,6 +166,7 @@ function statsView(){
   <div class="sec">Time of day <span class="mut" style="font-weight:400;font-size:12px">(closed trades, by entry time ET)</span></div>
   ${card('☀️ Before 12 PM',am)}${card('🌙 12 PM or later',pm)}${na.length?card('No entry time logged',na,'add a time'):''}
   ${na.length?`<div class="mut" style="font-size:12px;margin-top:6px">${na.length} closed trade${na.length===1?' has':'s have'} no entry time. Edit a trade to add one, or paste TIME lines in Import.</div>`:''}
+  ${planSec}
   <div class="sec">Mistake tags <span class="mut" style="font-weight:400;font-size:12px">(worst first)</span></div>
   ${tg.length?tg.map(o=>card(esc(o.x),o.a)).join('')+card('Clean trades (no tags)',clean):'<div class="mut" style="font-size:13px">No tags yet. Open a trade, tap Edit trade and pick tags like FOMO or Revenge.</div>'}
   <div class="sec">Discipline</div>
@@ -193,7 +200,7 @@ function home(){
   <div class="tabs">${['all','open','closed'].map(f=>`<button class="tab ${flt===f?'on':''}" onclick="flt='${f}';render()">${f[0].toUpperCase()+f.slice(1)}${f==='open'?' ('+open.length+')':''}</button>`).join('')}</div>
   ${list.length?list.map(({t,c})=>`<div class="card item" onclick="cur='${t.id}';render();scrollTo(0,0)">
    <div class="row"><b>${title(t)}</b><span class="${cls(c.pnl)}" style="white-space:nowrap"><b>${c.sold?money(c.pnl):'Open'}</b>${c.sold?` <span style="font-size:13px">${c.pct>0?'+':''}${c.pct.toFixed(1)}%</span>`:''}</span></div>
-   <div class="row mut" style="font-size:13px;margin-top:4px"><span>Exp ${fd(t.exp)} · ${t.qty}x @ $${t.entry}</span><span>${c.closed?'Closed':c.rem+' of '+t.qty+' left'}</span></div>${(t.tags&&t.tags.length)?`<div class="dn" style="margin-top:4px;font-size:12px">${t.tags.map(esc).join(' · ')}</div>`:''}</div>`).join(''):`<div class="empty">No trades yet.<br>Tap + to log your first one.</div>`}
+   <div class="row mut" style="font-size:13px;margin-top:4px"><span>Exp ${fd(t.exp)} · ${t.qty}x @ $${t.entry}</span><span>${c.closed?'Closed':c.rem+' of '+t.qty+' left'}</span></div>${((t.tags&&t.tags.length)||t.plan)?`<div class="mut" style="margin-top:4px;font-size:12px">${t.plan===1?'✅ ':t.plan===-1?'❌ ':''}${(t.tags||[]).map(esc).join(' · ')}</div>`:''}</div>`).join(''):`<div class="empty">No trades yet.<br>Tap + to log your first one.</div>`}
   <button class="fab" onclick="tradeForm()">+</button>`;
 }
 function detail(t){
@@ -202,6 +209,7 @@ function detail(t){
   <h1>${title(t)}</h1>
   <div class="mut" style="margin:-6px 0 10px">Exp ${fd(t.exp)} · Bought ${fd(t.date)}${t.time?' '+t.time+' ET':''}</div>
   ${(t.tags&&t.tags.length)?`<div class="chips" style="margin:-2px 0 10px">${t.tags.map(x=>`<span class="chip on" style="cursor:default">${esc(x)}</span>`).join('')}</div>`:''}
+  <div class="seg" style="margin-bottom:10px"><button class="tab ${t.plan===1?'on':''}" onclick="setTradePlan('${t.id}',1)">✅ Followed plan</button><button class="tab ${t.plan===-1?'on':''}" onclick="setTradePlan('${t.id}',-1)">❌ Broke plan</button></div>
   <div class="grid">
    <div class="card"><div class="k">Realized P&L</div><div class="v ${cls(c.pnl)}">${c.sold?money(c.pnl):'–'}</div>${c.sold?`<div class="k ${cls(c.pnl)}">${c.pct.toFixed(1)}%</div>`:''}</div>
    <div class="card"><div class="k">Status</div><div class="v">${c.closed?'Closed':c.rem+' left'}</div><div class="k">${c.sold} of ${t.qty} sold</div></div>
@@ -221,7 +229,7 @@ function sheet(h){$('#modal').innerHTML=`<div class="ov" onclick="if(event.targe
 function closeSheet(){$('#modal').innerHTML=''}
 let tp='call';
 function tradeForm(id){
-  const t=S.trades.find(x=>x.id===id)||{};tp=t.type||'call';ftags=(t.tags||[]).slice();
+  const t=S.trades.find(x=>x.id===id)||{};tp=t.type||'call';ftags=(t.tags||[]).slice();fplan=t.plan||0;
   sheet(`<h1>${id?'Edit trade':'New trade'}</h1>
   <label>Ticker</label><input id="f_tk" value="${esc(t.ticker)}" autocapitalize="characters" placeholder="AAPL">
   <label>Type</label><div class="seg"><button id="b_call" class="tab ${tp==='call'?'on':''}" onclick="setT('call')">Call</button><button id="b_put" class="tab ${tp==='put'?'on':''}" onclick="setT('put')">Put</button></div>
@@ -233,13 +241,14 @@ function tradeForm(id){
   <div><label>Total entry fees ($)</label><input id="f_fe" type="number" step="any" inputmode="decimal" value="${t.fees||''}"></div>
   <div><label>Entry time (ET)</label><input id="f_tm" type="time" value="${t.time||''}"></div></div>
   <label>Tags (mistakes)</label><div id="tagbox" class="chips">${tagChips()}</div>
+  <label>Did you follow your plan on this trade?</label><div class="seg" id="planbox">${planBtns()}</div>
   <label>Notes / thesis</label><textarea id="f_n" rows="3">${esc(t.notes)}</textarea>
   <div class="acts"><button class="btn p" onclick="saveTrade('${id||''}')">Save</button><button class="btn" onclick="closeSheet()">Cancel</button></div>`);
 }
 function setT(x){tp=x;$('#b_call').classList.toggle('on',x==='call');$('#b_put').classList.toggle('on',x==='put')}
 function saveTrade(id){
   const v=i=>$(i).value,n=i=>parseFloat(v(i));
-  const d={ticker:v('#f_tk').trim().toUpperCase(),type:tp,strike:n('#f_st'),exp:v('#f_ex'),qty:parseInt(v('#f_q')),entry:n('#f_en'),date:v('#f_d'),fees:n('#f_fe')||0,time:v('#f_tm'),tags:ftags.slice(),notes:v('#f_n').trim()};
+  const d={ticker:v('#f_tk').trim().toUpperCase(),type:tp,strike:n('#f_st'),exp:v('#f_ex'),qty:parseInt(v('#f_q')),entry:n('#f_en'),date:v('#f_d'),fees:n('#f_fe')||0,time:v('#f_tm'),tags:ftags.slice(),plan:fplan,notes:v('#f_n').trim()};
   if(!d.ticker||isNaN(d.strike)||!d.exp||!(d.qty>0)||isNaN(d.entry))return alert('Please fill ticker, strike, expiration, contracts and cost.');
   if(id){const t=S.trades.find(x=>x.id===id);const sold=t.sells.reduce((a,s)=>a+s.qty,0);if(d.qty<sold)return alert('Contracts bought can\'t be less than already sold ('+sold+').');Object.assign(t,d)}
   else{const t={id:uid(),sells:[],...d};S.trades.push(t);}
