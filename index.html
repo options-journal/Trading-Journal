@@ -40,6 +40,10 @@ input,textarea{width:100%;padding:11px;border-radius:10px;border:1px solid var(-
 .day.gd{border-color:var(--dn);background:color-mix(in srgb,var(--dn) 22%,var(--card))}
 .day.sel{outline:2px solid var(--ac)}
 .day b{font-size:11px;text-align:right}
+.day .top{display:flex;justify-content:space-between;align-items:center}
+.moods{display:flex;gap:6px}.moods .tab{font-size:20px;padding:6px 0}
+.nd{color:var(--ac);font-style:normal;font-size:7px;margin-left:3px;vertical-align:middle}
+.cnt{font-size:9px;line-height:1;border:1px solid var(--mut);border-radius:99px;padding:1px 5px;color:var(--mut)}
 .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 </style></head><body>
 <div id="app"></div><div id="modal"></div>
@@ -68,19 +72,32 @@ function vsw(){return `<div class="vsw"><button class="tab ${view==='trades'?'on
 function calView(){
   const map={};
   S.trades.forEach(t=>t.sells.forEach(s=>{const e=map[s.date]=map[s.date]||{pnl:0,items:[]};const p=sellPnl(t,s);e.pnl+=p;e.items.push({t,s,p})}));
+  const cnt={};S.trades.forEach(t=>{if(t.date)cnt[t.date]=(cnt[t.date]||0)+1});
   const {y,m}=cm,first=new Date(y,m,1).getDay(),dim=new Date(y,m+1,0).getDate(),pre=y+'-'+pad(m+1)+'-';
-  let mt=0,wd=0,ld=0,cells='';
+  let mt=0,wd=0,ld=0,mtr=0,cells='';
   for(let i=0;i<first;i++)cells+='<div></div>';
-  for(let d=1;d<=dim;d++){const k=pre+pad(d),e=map[k];if(e){mt+=e.pnl;e.pnl>=0?wd++:ld++}
-    cells+=`<div class="day ${e?(e.pnl>=0?'gu':'gd'):''} ${sel===k?'sel':''}" onclick="sel=sel==='${k}'?null:'${k}';render()"><span class="mut">${d}</span>${e?`<b class="${cls(e.pnl)}">${cmp(e.pnl)}</b>`:''}</div>`}
+  for(let d=1;d<=dim;d++){const k=pre+pad(d),e=map[k],c=cnt[k]||0;mtr+=c;if(e){mt+=e.pnl;e.pnl>=0?wd++:ld++}
+    cells+=`<div class="day ${e?(e.pnl>=0?'gu':'gd'):''} ${sel===k?'sel':''}" onclick="sel=sel==='${k}'?null:'${k}';render()"><div class="top"><span class="mut">${d}${hn(k)?'<i class="nd">●</i>':''}</span>${c?`<span class="cnt">${c}</span>`:''}</div>${e?`<b class="${cls(e.pnl)}">${cmp(e.pnl)}</b>`:''}</div>`}
   const e=sel&&map[sel];
   return `<h1>Options Journal <span style="display:flex;gap:6px"><button class="btn" onclick="dataSheet()">Import</button><button class="btn" onclick="exportCSV()">CSV</button></span></h1>${vsw()}
   <div class="row" style="margin-bottom:8px"><button class="btn" onclick="mv(-1)">‹</button><b>${new Date(y,m,1).toLocaleDateString(undefined,{month:'long',year:'numeric'})}</b><button class="btn" onclick="mv(1)">›</button></div>
-  <div class="card row"><div><div class="k">Month P&L</div><div class="v ${cls(mt)}">${money(mt)}</div></div><div style="text-align:right"><div class="k">Green / red days</div><div class="v"><span class="up">${wd}</span> / <span class="dn">${ld}</span></div></div></div>
+  <div class="card row"><div><div class="k">Month P&L · ${mtr} trade${mtr===1?'':'s'}</div><div class="v ${cls(mt)}">${money(mt)}</div></div><div style="text-align:right"><div class="k">Green / red days</div><div class="v"><span class="up">${wd}</span> / <span class="dn">${ld}</span></div></div></div>
   <div class="cal">${['S','M','T','W','T','F','S'].map(x=>`<div class="dow">${x}</div>`).join('')}${cells}</div>
-  ${sel?`<div class="row" style="margin:14px 0 6px"><b>${fd(sel)}</b><b class="${cls(e?e.pnl:0)}">${e?money(e.pnl):'No sales'}</b></div>`+(e?e.items.map(({t,s,p})=>`<div class="card item" onclick="cur='${t.id}';render();scrollTo(0,0)"><div class="row"><b>${title(t)}</b><b class="${cls(p)}">${money(p)}</b></div><div class="mut" style="font-size:13px">Sold ${s.qty}x @ $${s.price} · bought @ $${t.entry}</div></div>`).join(''):''):'<div class="mut" style="margin-top:10px;font-size:13px;text-align:center">Tap a day to see its trades. P&L is counted on the day contracts were sold.</div>'}
+  ${sel?`<div class="row" style="margin:14px 0 6px"><b>${fd(sel)}</b><b class="${cls(e?e.pnl:0)}">${e?money(e.pnl):'No sales'}</b></div>`+(e?e.items.map(({t,s,p})=>`<div class="card item" onclick="cur='${t.id}';render();scrollTo(0,0)"><div class="row"><b>${title(t)}</b><b class="${cls(p)}">${money(p)}</b></div><div class="mut" style="font-size:13px">Sold ${s.qty}x @ $${s.price} · bought @ $${t.entry}</div></div>`).join(''):''):'<div class="mut" style="margin-top:10px;font-size:13px;text-align:center">Tap a day to see its trades and add notes. P&L is counted on the day contracts were sold. The small number is trades opened that day (one per buy).</div>'}
+  ${sel?noteBox(sel):''}
   <button class="fab" onclick="tradeForm()">+</button>`;
 }
+const MOODS=['😫','😕','😐','🙂','🔥'];
+function hn(k){const n=(S.notes||{})[k];return !!(n&&(n.mood||n.plan||n.review))}
+function noteBox(k){
+  const n=(S.notes||{})[k]||{};
+  return `<div class="card" style="margin-top:14px"><b>Daily journal</b>
+  <label>Mood</label><div class="moods">${MOODS.map((m,i)=>`<button class="tab ${n.mood===i+1?'on':''}" onclick="setMood('${k}',${i+1})">${m}</button>`).join('')}</div>
+  <label>Plan</label><textarea rows="3" oninput="saveNote('${k}','plan',this.value)" placeholder="What's the plan for today?">${esc(n.plan)}</textarea>
+  <label>Trade review</label><textarea rows="4" oninput="saveNote('${k}','review',this.value)" placeholder="What went well? What would you change?">${esc(n.review)}</textarea></div>`;
+}
+function saveNote(k,f,v){S.notes=S.notes||{};const n=S.notes[k]=S.notes[k]||{};n[f]=v;if(!n.mood&&!n.plan&&!n.review)delete S.notes[k];save()}
+function setMood(k,v){S.notes=S.notes||{};const n=S.notes[k]=S.notes[k]||{};n.mood=n.mood===v?0:v;if(!n.mood&&!n.plan&&!n.review)delete S.notes[k];save();render()}
 function mv(d){cm.m+=d;if(cm.m<0){cm.m=11;cm.y--}if(cm.m>11){cm.m=0;cm.y++}sel=null;render()}
 function title(t){return `${esc(t.ticker)} $${t.strike} <span class="pill ${t.type}">${t.type.toUpperCase()}</span>`}
 function render(){
