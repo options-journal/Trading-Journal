@@ -43,6 +43,11 @@ input,textarea{width:100%;padding:11px;border-radius:10px;border:1px solid var(-
 .day .top{display:flex;justify-content:space-between;align-items:center}
 .moods{display:flex;gap:6px}.moods .tab{font-size:20px;padding:6px 0}
 .nd{color:var(--ac);font-style:normal;font-size:7px;margin-left:3px;vertical-align:middle}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{padding:6px 11px;border-radius:99px;border:1px solid var(--bd);background:var(--card);color:var(--tx);font-size:13px}
+.chip.on{background:var(--dn);border-color:var(--dn);color:#fff}
+.wn{color:var(--dn);font-style:normal;font-weight:800;font-size:11px;margin-right:3px}
+.sec{font-weight:700;margin:18px 0 6px}
 .cnt{font-size:9px;line-height:1;border:1px solid var(--mut);border-radius:99px;padding:1px 5px;color:var(--mut)}
 .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 </style></head><body>
@@ -68,36 +73,98 @@ function calc(t){
 function sellPnl(t,s){return s.price*s.qty*100-(s.fees||0)-t.entry*100*s.qty-(t.fees||0)*(s.qty/t.qty)}
 const pad=n=>String(n).padStart(2,'0');
 const cmp=n=>(n<0?'-':'+')+'$'+(Math.abs(n)>=1000?(Math.abs(n)/1000).toFixed(1)+'k':Math.round(Math.abs(n)));
-function vsw(){return `<div class="vsw"><button class="tab ${view==='trades'?'on':''}" onclick="view='trades';render()">Trades</button><button class="tab ${view==='cal'?'on':''}" onclick="view='cal';render()">Calendar</button></div>`}
+const DTAGS=['FOMO','Revenge','Oversized','Chased','Broke rules','Early exit','Held too long'];
+const allTags=()=>DTAGS.concat((S.customTags||[]).filter(x=>!DTAGS.includes(x)));
+let ftags=[];
+const sess=t=>{if(!t.time)return 'na';return parseInt(t.time.split(':')[0])<12?'am':'pm'};
+const stat=a=>{const n=a.length,w=a.filter(x=>x.c.pnl>0).length;return{n,w,p:a.reduce((q,x)=>q+x.c.pnl,0),wr:n?w/n*100:0,pc:n?a.reduce((q,x)=>q+x.c.pct,0)/n:0}};
+const RULES=()=>S.rules||{};
+function dayInfo(){
+  const pnl={},cnt={};
+  S.trades.forEach(t=>{if(t.date)cnt[t.date]=(cnt[t.date]||0)+1;t.sells.forEach(x=>{pnl[x.date]=(pnl[x.date]||0)+sellPnl(t,x)})});
+  return{pnl,cnt};
+}
+function ruleBreak(k,di){const r=RULES(),o=[],p=di.pnl[k]||0,c=di.cnt[k]||0;if(r.maxLoss>0&&p<-r.maxLoss)o.push('loss');if(r.maxTrades>0&&c>r.maxTrades)o.push('trades');return o}
+function vsw(){return `<div class="vsw">${[['trades','Trades'],['cal','Calendar'],['stats','Stats']].map(([v,l])=>`<button class="tab ${view===v?'on':''}" onclick="view='${v}';render()">${l}</button>`).join('')}</div>`}
 function calView(){
   const map={};
   S.trades.forEach(t=>t.sells.forEach(s=>{const e=map[s.date]=map[s.date]||{pnl:0,items:[]};const p=sellPnl(t,s);e.pnl+=p;e.items.push({t,s,p})}));
   const cnt={};S.trades.forEach(t=>{if(t.date)cnt[t.date]=(cnt[t.date]||0)+1});
   const {y,m}=cm,first=new Date(y,m,1).getDay(),dim=new Date(y,m+1,0).getDate(),pre=y+'-'+pad(m+1)+'-';
-  let mt=0,wd=0,ld=0,mtr=0,cells='';
+  let mt=0,wd=0,ld=0,mtr=0,rbm=0,cells='';const di=dayInfo();
   for(let i=0;i<first;i++)cells+='<div></div>';
-  for(let d=1;d<=dim;d++){const k=pre+pad(d),e=map[k],c=cnt[k]||0;mtr+=c;if(e){mt+=e.pnl;e.pnl>=0?wd++:ld++}
-    cells+=`<div class="day ${e?(e.pnl>=0?'gu':'gd'):''} ${sel===k?'sel':''}" onclick="sel=sel==='${k}'?null:'${k}';render()"><div class="top"><span class="mut">${d}${hn(k)?'<i class="nd">●</i>':''}</span>${c?`<span class="cnt">${c}</span>`:''}</div>${e?`<b class="${cls(e.pnl)}">${cmp(e.pnl)}</b>`:''}</div>`}
+  for(let d=1;d<=dim;d++){const k=pre+pad(d),e=map[k],c=cnt[k]||0,rb=ruleBreak(k,di).length;mtr+=c;if(rb)rbm++;if(e){mt+=e.pnl;e.pnl>=0?wd++:ld++}
+    cells+=`<div class="day ${e?(e.pnl>=0?'gu':'gd'):''} ${sel===k?'sel':''}" onclick="sel=sel==='${k}'?null:'${k}';render()"><div class="top"><span class="mut">${d}${hn(k)?'<i class="nd">●</i>':''}</span><span>${rb?'<i class="wn">!</i>':''}${c?`<span class="cnt">${c}</span>`:''}</span></div>${e?`<b class="${cls(e.pnl)}">${cmp(e.pnl)}</b>`:''}</div>`}
   const e=sel&&map[sel];
   return `<h1>Options Journal <span style="display:flex;gap:6px"><button class="btn" onclick="dataSheet()">Import</button><button class="btn" onclick="exportCSV()">CSV</button></span></h1>${vsw()}
   <div class="row" style="margin-bottom:8px"><button class="btn" onclick="mv(-1)">‹</button><b>${new Date(y,m,1).toLocaleDateString(undefined,{month:'long',year:'numeric'})}</b><button class="btn" onclick="mv(1)">›</button></div>
-  <div class="card row"><div><div class="k">Month P&L · ${mtr} trade${mtr===1?'':'s'}</div><div class="v ${cls(mt)}">${money(mt)}</div></div><div style="text-align:right"><div class="k">Green / red days</div><div class="v"><span class="up">${wd}</span> / <span class="dn">${ld}</span></div></div></div>
+  <div class="card row"><div><div class="k">Month P&L · ${mtr} trade${mtr===1?'':'s'}</div><div class="v ${cls(mt)}">${money(mt)}</div></div><div style="text-align:right"><div class="k">Green / red days</div><div class="v"><span class="up">${wd}</span> / <span class="dn">${ld}</span></div>${(RULES().maxLoss||RULES().maxTrades)?`<div class="k dn">${rbm} rule-break day${rbm===1?'':'s'}</div>`:''}</div></div>
   <div class="cal">${['S','M','T','W','T','F','S'].map(x=>`<div class="dow">${x}</div>`).join('')}${cells}</div>
-  ${sel?`<div class="row" style="margin:14px 0 6px"><b>${fd(sel)}</b><b class="${cls(e?e.pnl:0)}">${e?money(e.pnl):'No sales'}</b></div>`+(e?e.items.map(({t,s,p})=>`<div class="card item" onclick="cur='${t.id}';render();scrollTo(0,0)"><div class="row"><b>${title(t)}</b><b class="${cls(p)}">${money(p)}</b></div><div class="mut" style="font-size:13px">Sold ${s.qty}x @ $${s.price} · bought @ $${t.entry}</div></div>`).join(''):''):'<div class="mut" style="margin-top:10px;font-size:13px;text-align:center">Tap a day to see its trades and add notes. P&L is counted on the day contracts were sold. The small number is trades opened that day (one per buy).</div>'}
+  ${sel?`<div class="row" style="margin:14px 0 6px"><b>${fd(sel)}</b><b class="${cls(e?e.pnl:0)}">${e?money(e.pnl):'No sales'}</b></div>`+(e?e.items.map(({t,s,p})=>`<div class="card item" onclick="cur='${t.id}';render();scrollTo(0,0)"><div class="row"><b>${title(t)}</b><b class="${cls(p)}">${money(p)}</b></div><div class="mut" style="font-size:13px">Sold ${s.qty}x @ $${s.price} · bought @ $${t.entry}</div></div>`).join(''):''):'<div class="mut" style="margin-top:10px;font-size:13px;text-align:center">Tap a day to see its trades and add notes. P&L is counted on the day contracts were sold. The small number is trades opened that day (one per buy). A red ! means a rule was broken.</div>'}
+  ${sel?ruleBox(sel,di):''}
   ${sel?noteBox(sel):''}
   <button class="fab" onclick="tradeForm()">+</button>`;
 }
 const MOODS=['😫','😕','😐','🙂','🔥'];
-function hn(k){const n=(S.notes||{})[k];return !!(n&&(n.mood||n.plan||n.review))}
+const emptyN=n=>!(n.mood||n.plan||n.review||n.followed);
+function hn(k){const n=(S.notes||{})[k];return !!(n&&!emptyN(n))}
 function noteBox(k){
   const n=(S.notes||{})[k]||{};
   return `<div class="card" style="margin-top:14px"><b>Daily journal</b>
   <label>Mood</label><div class="moods">${MOODS.map((m,i)=>`<button class="tab ${n.mood===i+1?'on':''}" onclick="setMood('${k}',${i+1})">${m}</button>`).join('')}</div>
   <label>Plan</label><textarea rows="3" oninput="saveNote('${k}','plan',this.value)" placeholder="What's the plan for today?">${esc(n.plan)}</textarea>
+  <label>Did you follow your plan?</label><div class="seg"><button class="tab ${n.followed===1?'on':''}" onclick="setFollow('${k}',1)">✅ Followed it</button><button class="tab ${n.followed===-1?'on':''}" onclick="setFollow('${k}',-1)">❌ Broke it</button></div>
   <label>Trade review</label><textarea rows="4" oninput="saveNote('${k}','review',this.value)" placeholder="What went well? What would you change?">${esc(n.review)}</textarea></div>`;
 }
-function saveNote(k,f,v){S.notes=S.notes||{};const n=S.notes[k]=S.notes[k]||{};n[f]=v;if(!n.mood&&!n.plan&&!n.review)delete S.notes[k];save()}
-function setMood(k,v){S.notes=S.notes||{};const n=S.notes[k]=S.notes[k]||{};n.mood=n.mood===v?0:v;if(!n.mood&&!n.plan&&!n.review)delete S.notes[k];save();render()}
+function saveNote(k,f,v){S.notes=S.notes||{};const n=S.notes[k]=S.notes[k]||{};n[f]=v;if(emptyN(n))delete S.notes[k];save()}
+function setMood(k,v){S.notes=S.notes||{};const n=S.notes[k]=S.notes[k]||{};n.mood=n.mood===v?0:v;if(emptyN(n))delete S.notes[k];save();render()}
+function setFollow(k,v){S.notes=S.notes||{};const n=S.notes[k]=S.notes[k]||{};n.followed=n.followed===v?0:v;if(emptyN(n))delete S.notes[k];save();render()}
+function ruleBox(k,di){
+  const r=RULES();if(!r.maxLoss&&!r.maxTrades&&!r.goal)return '';
+  const p=di.pnl[k]||0,c=di.cnt[k]||0,L=[];
+  if(r.maxTrades)L.push(`<div class="row"><span>Trades opened</span><b class="${c>r.maxTrades?'dn':'up'}">${c} / ${r.maxTrades}</b></div>`);
+  if(r.maxLoss)L.push(`<div class="row"><span>Loss limit</span><b class="${p<-r.maxLoss?'dn':'up'}">${money(p)} (limit -${money(r.maxLoss)})</b></div>`);
+  if(r.goal)L.push(`<div class="row"><span>Profit goal</span><b class="${p>=r.goal?'up':''}">${money(p)} / ${money(r.goal)}</b></div>`);
+  return `<div class="card" style="margin-top:14px"><b>Rules check</b><div style="display:grid;gap:6px;margin-top:8px">${L.join('')}</div></div>`;
+}
+function rulesForm(){
+  const r=RULES();
+  sheet(`<h1>Rules & goals</h1><div class="mut" style="font-size:13px">Leave a box empty to turn that rule off. Days that break a rule get a red ! on the calendar.</div>
+  <label>Max loss per day ($)</label><input id="r_ml" type="number" inputmode="decimal" value="${r.maxLoss||''}">
+  <label>Max trades per day (number of buys)</label><input id="r_mt" type="number" inputmode="numeric" value="${r.maxTrades||''}">
+  <label>Daily profit goal ($)</label><input id="r_g" type="number" inputmode="decimal" value="${r.goal||''}">
+  <div class="acts"><button class="btn p" onclick="saveRules()">Save</button><button class="btn" onclick="closeSheet()">Cancel</button></div>`);
+}
+function saveRules(){const g=i=>{const v=parseFloat($(i).value);return v>0?v:null};S.rules={maxLoss:g('#r_ml'),maxTrades:g('#r_mt'),goal:g('#r_g')};save();closeSheet();render()}
+function tagChips(){return allTags().map((x,i)=>`<button class="chip ${ftags.includes(x)?'on':''}" onclick="togTag(${i})">${esc(x)}</button>`).join('')+`<button class="chip" style="border-style:dashed" onclick="newTag()">＋ New</button>`}
+function togTag(i){const x=allTags()[i],j=ftags.indexOf(x);j<0?ftags.push(x):ftags.splice(j,1);$('#tagbox').innerHTML=tagChips()}
+function newTag(){const n=(prompt('New tag name')||'').trim();if(!n)return;S.customTags=S.customTags||[];if(!allTags().includes(n)){S.customTags.push(n);save()}if(!ftags.includes(n))ftags.push(n);$('#tagbox').innerHTML=tagChips()}
+function statsView(){
+  const cl=S.trades.map(t=>({t,c:calc(t)})).filter(x=>x.c.closed);
+  const di=dayInfo(),r=RULES(),noteOf=k=>(S.notes||{})[k]||{};
+  const card=(label,a,sub)=>{const q=stat(a);return `<div class="card"><div class="row"><b>${label}</b><b class="${cls(q.p)}">${a.length?money(q.p):'–'}</b></div><div class="row mut" style="font-size:13px;margin-top:4px"><span>${q.n} trade${q.n===1?'':'s'}${a.length?' · '+Math.round(q.wr)+'% win':''}</span><span>${a.length?(q.pc>0?'+':'')+q.pc.toFixed(1)+'% avg':(sub||'')}</span></div></div>`};
+  const am=cl.filter(x=>sess(x.t)==='am'),pm=cl.filter(x=>sess(x.t)==='pm'),na=cl.filter(x=>sess(x.t)==='na');
+  const tg=allTags().map(x=>({x,a:cl.filter(y=>(y.t.tags||[]).includes(x))})).filter(o=>o.a.length).sort((u,w)=>stat(u.a).p-stat(w.a).p);
+  const clean=cl.filter(x=>!(x.t.tags||[]).length);
+  const days=[...new Set([...Object.keys(di.pnl),...Object.keys(di.cnt)])];
+  const gd=f=>{const a=days.filter(f),p=a.reduce((q,k)=>q+(di.pnl[k]||0),0);return{n:a.length,p,avg:a.length?p/a.length:0}};
+  const dcard=(label,g)=>`<div class="card"><div class="row"><b>${label}</b><b class="${cls(g.p)}">${g.n?money(g.p):'–'}</b></div><div class="row mut" style="font-size:13px;margin-top:4px"><span>${g.n} day${g.n===1?'':'s'}</span><span>${g.n?money(g.avg)+' avg/day':''}</span></div></div>`;
+  const hasR=r.maxLoss||r.maxTrades,anyF=Object.values(S.notes||{}).some(n=>n.followed);
+  const rtxt=(r.maxLoss||r.maxTrades||r.goal)?[r.maxLoss?'Max loss/day '+money(r.maxLoss):'',r.maxTrades?'Max trades/day '+r.maxTrades:'',r.goal?'Goal '+money(r.goal):''].filter(Boolean).join(' · '):'Not set yet. Tap Edit to add a loss limit, trade limit or daily goal.';
+  let disc='';
+  if(hasR){disc+=dcard('Days within your rules',gd(k=>!ruleBreak(k,di).length))+dcard('Days you broke a rule',gd(k=>ruleBreak(k,di).length>0))}
+  if(r.goal)disc+=dcard('Days you hit your goal',gd(k=>(di.pnl[k]||0)>=r.goal));
+  if(anyF)disc+=dcard('Days you followed your plan',gd(k=>noteOf(k).followed===1))+dcard('Days you broke your plan',gd(k=>noteOf(k).followed===-1));
+  return `<h1>Options Journal <span style="display:flex;gap:6px"><button class="btn" onclick="dataSheet()">Import</button><button class="btn" onclick="exportCSV()">CSV</button></span></h1>${vsw()}
+  <div class="card"><div class="row"><b>Rules & goals</b><button class="btn" onclick="rulesForm()">Edit</button></div><div class="mut" style="font-size:13px;margin-top:6px">${rtxt}</div></div>
+  <div class="sec">Time of day <span class="mut" style="font-weight:400;font-size:12px">(closed trades, by entry time ET)</span></div>
+  ${card('☀️ Before 12 PM',am)}${card('🌙 12 PM or later',pm)}${na.length?card('No entry time logged',na,'add a time'):''}
+  ${na.length?`<div class="mut" style="font-size:12px;margin-top:6px">${na.length} closed trade${na.length===1?' has':'s have'} no entry time. Edit a trade to add one, or paste TIME lines in Import.</div>`:''}
+  <div class="sec">Mistake tags <span class="mut" style="font-weight:400;font-size:12px">(worst first)</span></div>
+  ${tg.length?tg.map(o=>card(esc(o.x),o.a)).join('')+card('Clean trades (no tags)',clean):'<div class="mut" style="font-size:13px">No tags yet. Open a trade, tap Edit trade and pick tags like FOMO or Revenge.</div>'}
+  <div class="sec">Discipline</div>
+  ${disc||'<div class="mut" style="font-size:13px">Set rules above and mark days Followed or Broke it in the calendar journal to see how discipline affects your results.</div>'}`;
+}
 function mv(d){cm.m+=d;if(cm.m<0){cm.m=11;cm.y--}if(cm.m>11){cm.m=0;cm.y++}sel=null;render()}
 function title(t){return `${esc(t.ticker)} $${t.strike} <span class="pill ${t.type}">${t.type.toUpperCase()}</span>`}
 function render(){
@@ -112,7 +179,7 @@ function home(){
   const wr=closed.length?Math.round(wins.length/closed.length*100)+'%':'–';
   const avg=a=>a.length?a.reduce((s,x)=>s+x.c.pnl,0)/a.length:0;
   let list=all.filter(x=>flt==='all'||(flt==='open'?!x.c.closed:x.c.closed)).sort((a,b)=>(b.t.date||'').localeCompare(a.t.date||''));
-  if(view==='cal')return calView();
+  if(view==='cal')return calView();if(view==='stats')return statsView();
   const ap=a=>a.length?a.reduce((q,x)=>q+x.c.pct,0)/a.length:null,pf=n=>n==null?'–':(n>0?'+':'')+n.toFixed(1)+'%';
   return `<h1>Options Journal <span style="display:flex;gap:6px"><button class="btn" onclick="dataSheet()">Import</button><button class="btn" onclick="exportCSV()">CSV</button></span></h1>${vsw()}
   <div class="grid">
@@ -126,14 +193,15 @@ function home(){
   <div class="tabs">${['all','open','closed'].map(f=>`<button class="tab ${flt===f?'on':''}" onclick="flt='${f}';render()">${f[0].toUpperCase()+f.slice(1)}${f==='open'?' ('+open.length+')':''}</button>`).join('')}</div>
   ${list.length?list.map(({t,c})=>`<div class="card item" onclick="cur='${t.id}';render();scrollTo(0,0)">
    <div class="row"><b>${title(t)}</b><span class="${cls(c.pnl)}" style="white-space:nowrap"><b>${c.sold?money(c.pnl):'Open'}</b>${c.sold?` <span style="font-size:13px">${c.pct>0?'+':''}${c.pct.toFixed(1)}%</span>`:''}</span></div>
-   <div class="row mut" style="font-size:13px;margin-top:4px"><span>Exp ${fd(t.exp)} · ${t.qty}x @ $${t.entry}</span><span>${c.closed?'Closed':c.rem+' of '+t.qty+' left'}</span></div></div>`).join(''):`<div class="empty">No trades yet.<br>Tap + to log your first one.</div>`}
+   <div class="row mut" style="font-size:13px;margin-top:4px"><span>Exp ${fd(t.exp)} · ${t.qty}x @ $${t.entry}</span><span>${c.closed?'Closed':c.rem+' of '+t.qty+' left'}</span></div>${(t.tags&&t.tags.length)?`<div class="dn" style="margin-top:4px;font-size:12px">${t.tags.map(esc).join(' · ')}</div>`:''}</div>`).join(''):`<div class="empty">No trades yet.<br>Tap + to log your first one.</div>`}
   <button class="fab" onclick="tradeForm()">+</button>`;
 }
 function detail(t){
   const c=calc(t);
   return `<button class="back" onclick="cur=null;render()">‹ All trades</button>
   <h1>${title(t)}</h1>
-  <div class="mut" style="margin:-6px 0 10px">Exp ${fd(t.exp)} · Bought ${fd(t.date)}</div>
+  <div class="mut" style="margin:-6px 0 10px">Exp ${fd(t.exp)} · Bought ${fd(t.date)}${t.time?' '+t.time+' ET':''}</div>
+  ${(t.tags&&t.tags.length)?`<div class="chips" style="margin:-2px 0 10px">${t.tags.map(x=>`<span class="chip on" style="cursor:default">${esc(x)}</span>`).join('')}</div>`:''}
   <div class="grid">
    <div class="card"><div class="k">Realized P&L</div><div class="v ${cls(c.pnl)}">${c.sold?money(c.pnl):'–'}</div>${c.sold?`<div class="k ${cls(c.pnl)}">${c.pct.toFixed(1)}%</div>`:''}</div>
    <div class="card"><div class="k">Status</div><div class="v">${c.closed?'Closed':c.rem+' left'}</div><div class="k">${c.sold} of ${t.qty} sold</div></div>
@@ -153,7 +221,7 @@ function sheet(h){$('#modal').innerHTML=`<div class="ov" onclick="if(event.targe
 function closeSheet(){$('#modal').innerHTML=''}
 let tp='call';
 function tradeForm(id){
-  const t=S.trades.find(x=>x.id===id)||{};tp=t.type||'call';
+  const t=S.trades.find(x=>x.id===id)||{};tp=t.type||'call';ftags=(t.tags||[]).slice();
   sheet(`<h1>${id?'Edit trade':'New trade'}</h1>
   <label>Ticker</label><input id="f_tk" value="${esc(t.ticker)}" autocapitalize="characters" placeholder="AAPL">
   <label>Type</label><div class="seg"><button id="b_call" class="tab ${tp==='call'?'on':''}" onclick="setT('call')">Call</button><button id="b_put" class="tab ${tp==='put'?'on':''}" onclick="setT('put')">Put</button></div>
@@ -162,14 +230,16 @@ function tradeForm(id){
   <div><label>Contracts bought</label><input id="f_q" type="number" inputmode="numeric" value="${t.qty??''}"></div>
   <div><label>Cost per contract ($)</label><input id="f_en" type="number" step="any" inputmode="decimal" value="${t.entry??''}" placeholder="2.35"></div>
   <div><label>Buy date</label><input id="f_d" type="date" value="${t.date||today()}"></div>
-  <div><label>Total entry fees ($)</label><input id="f_fe" type="number" step="any" inputmode="decimal" value="${t.fees||''}"></div></div>
+  <div><label>Total entry fees ($)</label><input id="f_fe" type="number" step="any" inputmode="decimal" value="${t.fees||''}"></div>
+  <div><label>Entry time (ET)</label><input id="f_tm" type="time" value="${t.time||''}"></div></div>
+  <label>Tags (mistakes)</label><div id="tagbox" class="chips">${tagChips()}</div>
   <label>Notes / thesis</label><textarea id="f_n" rows="3">${esc(t.notes)}</textarea>
   <div class="acts"><button class="btn p" onclick="saveTrade('${id||''}')">Save</button><button class="btn" onclick="closeSheet()">Cancel</button></div>`);
 }
 function setT(x){tp=x;$('#b_call').classList.toggle('on',x==='call');$('#b_put').classList.toggle('on',x==='put')}
 function saveTrade(id){
   const v=i=>$(i).value,n=i=>parseFloat(v(i));
-  const d={ticker:v('#f_tk').trim().toUpperCase(),type:tp,strike:n('#f_st'),exp:v('#f_ex'),qty:parseInt(v('#f_q')),entry:n('#f_en'),date:v('#f_d'),fees:n('#f_fe')||0,notes:v('#f_n').trim()};
+  const d={ticker:v('#f_tk').trim().toUpperCase(),type:tp,strike:n('#f_st'),exp:v('#f_ex'),qty:parseInt(v('#f_q')),entry:n('#f_en'),date:v('#f_d'),fees:n('#f_fe')||0,time:v('#f_tm'),tags:ftags.slice(),notes:v('#f_n').trim()};
   if(!d.ticker||isNaN(d.strike)||!d.exp||!(d.qty>0)||isNaN(d.entry))return alert('Please fill ticker, strike, expiration, contracts and cost.');
   if(id){const t=S.trades.find(x=>x.id===id);const sold=t.sells.reduce((a,s)=>a+s.qty,0);if(d.qty<sold)return alert('Contracts bought can\'t be less than already sold ('+sold+').');Object.assign(t,d)}
   else{const t={id:uid(),sells:[],...d};S.trades.push(t);}
@@ -215,7 +285,7 @@ function dataSheet(){
   sheet(`<h1>Import & backup</h1>
   <label>Paste trade lines from Claude (one per line)</label>
   <textarea id="imp" rows="5" style="font-size:13px" placeholder="BUY, NVDA, 237.5, CALL, 2026-10-05, 15, 0.84, 0.60, 2026-10-05"></textarea>
-  <div class="mut" style="font-size:12px;margin-top:4px">Order: action, ticker, strike, call/put, expiration, contracts, price, fees, date. Sells attach to the matching open trade automatically.</div>
+  <div class="mut" style="font-size:12px;margin-top:4px">Order: action, ticker, strike, call/put, expiration, contracts, price, fees, date, time (optional, ET like 09:54). Sells attach to the matching open trade. A TIME line adds an entry time to a buy you already imported.</div>
   <div class="acts"><button class="btn p" onclick="doImport()">Import</button></div><div id="imr" style="margin-top:8px"></div>
   <hr style="border:0;border-top:1px solid var(--bd);margin:18px 0">
   <b>Backup</b><div class="mut" style="font-size:12px">Copies all your trades as text. Paste it into Notes.</div>
@@ -226,16 +296,23 @@ function dataSheet(){
 }
 function doImport(){
   const lines=$('#imp').value.split('\n').map(l=>l.trim()).filter(Boolean);
-  const dre=/^\d{4}-\d\d-\d\d$/;let a=0,b=0,dup=0;const err=[];
+  const dre=/^\d{4}-\d\d-\d\d$/;let a=0,b=0,dup=0,tm=0;const err=[];
   lines.forEach((l,i)=>{
     const f=l.split(/[,|]/).map(x=>x.trim());
-    if(f.length<9)return err.push('Line '+(i+1)+': needs 9 fields');
-    const act=f[0].toLowerCase(),d={ticker:f[1].toUpperCase(),strike:parseFloat(f[2]),type:f[3].toLowerCase(),exp:f[4],qty:parseInt(f[5]),price:parseFloat(f[6]),fees:parseFloat(f[7])||0,date:f[8]};
-    if(!/^(buy|sell)$/.test(act)||!/^(call|put)$/.test(d.type)||isNaN(d.strike)||!dre.test(d.exp)||!(d.qty>0)||isNaN(d.price)||!dre.test(d.date))return err.push('Line '+(i+1)+': couldn\'t read it');
+    if(f.length<9)return err.push('Line '+(i+1)+': needs at least 9 fields');
+    const act=f[0].toLowerCase(),d={ticker:f[1].toUpperCase(),strike:parseFloat(f[2]),type:f[3].toLowerCase(),exp:f[4],qty:parseInt(f[5]),price:parseFloat(f[6]),fees:parseFloat(f[7])||0,date:f[8],time:(/^\d{1,2}:\d\d$/.test(f[9]||'')?pad(parseInt(f[9]))+':'+f[9].split(':')[1]:'')};
+    if(!/^(buy|sell|time)$/.test(act)||!/^(call|put)$/.test(d.type)||isNaN(d.strike)||!dre.test(d.exp)||!(d.qty>0)||isNaN(d.price)||!dre.test(d.date))return err.push('Line '+(i+1)+': couldn\'t read it');
     const same=t=>t.ticker===d.ticker&&t.type===d.type&&t.strike===d.strike&&t.exp===d.exp;
+    const mt=t=>same(t)&&t.qty===d.qty&&t.entry===d.price&&t.date===d.date;
+    if(act==='time'){
+      if(!d.time)return err.push('Line '+(i+1)+': TIME needs a time like 09:54');
+      const ex=S.trades.find(mt);if(!ex)return err.push('Line '+(i+1)+': no matching buy for '+d.ticker+' $'+d.strike+' '+d.type);
+      ex.time=d.time;tm++;return;
+    }
     if(act==='buy'){
-      if(S.trades.some(t=>same(t)&&t.qty===d.qty&&t.entry===d.price&&t.date===d.date)){dup++;return}
-      S.trades.push({id:uid(),ticker:d.ticker,type:d.type,strike:d.strike,exp:d.exp,qty:d.qty,entry:d.price,date:d.date,fees:d.fees,notes:'',sells:[]});a++;
+      const ex=S.trades.find(mt);
+      if(ex){if(d.time&&!ex.time){ex.time=d.time;tm++}else dup++;return}
+      S.trades.push({id:uid(),ticker:d.ticker,type:d.type,strike:d.strike,exp:d.exp,qty:d.qty,entry:d.price,date:d.date,time:d.time,tags:[],fees:d.fees,notes:'',sells:[]});a++;
     }else{
       let left=d.qty;const ts=S.trades.filter(t=>same(t)&&calc(t).rem>0).sort((x,y)=>(x.date||'').localeCompare(y.date||''));
       if(ts.reduce((q,t)=>q+calc(t).rem,0)<left)return err.push('Line '+(i+1)+': no open '+d.ticker+' $'+d.strike+' '+d.type+' with '+left+' contracts left');
@@ -243,7 +320,7 @@ function doImport(){
     }
   });
   save();render();
-  $('#imr').innerHTML='<div class="up">Added '+a+' trade(s), '+b+' sale(s)'+(dup?', skipped '+dup+' duplicate buy(s)':'')+'</div>'+err.map(e=>'<div class="dn">'+esc(e)+'</div>').join('');
+  $('#imr').innerHTML='<div class="up">Added '+a+' trade(s), '+b+' sale(s)'+(dup?', skipped '+dup+' duplicate buy(s)':'')+(tm?', set time on '+tm+' trade(s)':'')+'</div>'+err.map(e=>'<div class="dn">'+esc(e)+'</div>').join('');
 }
 function copyBackup(btn){
   const t=JSON.stringify(S),ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();
